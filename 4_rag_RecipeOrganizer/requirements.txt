@@ -1,0 +1,6 @@
+llama-index==0.10.15
+llama-index-vector-stores-pinecone==0.1.5
+llama-index-embeddings-cohere==0.1.5
+pinecone-client==3.1.0
+cohere==5.1.8
+python-dotenv==1.0.0

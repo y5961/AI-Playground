@@ -58,7 +58,7 @@ def initialize_embedding_model():
     """Initialize Cohere embedding model."""
     embedding_model = CohereEmbedding(
         cohere_api_key=COHERE_API_KEY,
-        model_name="embed-english-v3.0",
+        model_name="embed-multilingual-v3.0",
         input_type="search_document"
     )
     print("[OK] Cohere embedding model initialized")

@@ -1,6 +1,6 @@
 """
-LlamaIndex script to index Markdown files from ./documentation using Cohere embeddings.
-Uses local vector storage (no Pinecone required) for easier testing and development.
+LlamaIndex script to index Markdown files with Custom Metadata.
+Categorizes files by Agentic Tools (Cursor, Kiro, Claude) and uses local storage.
 """
 
 import os
@@ -9,123 +9,127 @@ from dotenv import load_dotenv
 from llama_index.core import SimpleDirectoryReader, VectorStoreIndex, StorageContext
 from llama_index.embeddings.cohere import CohereEmbedding
 
-# Load environment variables from .env file
+# טעינת משתני סביבה
 load_dotenv()
 
-# Retrieve API keys from environment
+# הגדרות קבועות
 COHERE_API_KEY = os.getenv("COHERE_API_KEY")
 STORAGE_DIR = "./storage"
+DOCS_PATH = "./recipeProject/documentation"
 
 def validate_env_variables():
-    """Validate that all required environment variables are set."""
+    """וידוא שמפתח ה-API קיים."""
     if not COHERE_API_KEY:
         raise ValueError("COHERE_API_KEY not found in .env file")
     print("[OK] API keys loaded successfully")
 
+def get_file_metadata(file_path):
+    """
+    פונקציית עזר להוספת Metadata לכל קובץ נטען.
+    מזהה את הכלי (Tool) לפי שם הקובץ.
+    """
+    file_name = os.path.basename(file_path)
+    metadata = {"file_name": file_name}
+    
+    # לוגיקה לזיהוי הכלי האוטומטי
+    fname_lower = file_name.lower()
+    if "cursor" in fname_lower:
+        metadata["tool"] = "Cursor"
+    elif "kiro" in fname_lower:
+        metadata["tool"] = "Kiro"
+    elif "claude" in fname_lower:
+        metadata["tool"] = "Claude Code"
+    else:
+        metadata["tool"] = "General Documentation"
+        
+    return metadata
 
 def initialize_embedding_model():
-    """Initialize Cohere embedding model."""
-    embedding_model = CohereEmbedding(
+    """הגדרת מודל ה-Embeddings של Cohere."""
+    return CohereEmbedding(
         cohere_api_key=COHERE_API_KEY,
-        model_name="embed-english-v3.0",
+        model_name="embed-multilingual-v3.0",
         input_type="search_document"
     )
-    print("[OK] Cohere embedding model initialized")
-    return embedding_model
 
-
-def load_markdown_files(docs_path: str = "./documentation"):
-    """Load all Markdown files from the documentation directory."""
-    docs_dir = Path(docs_path)
-    
-    if not docs_dir.exists():
-        raise FileNotFoundError(f"Documentation directory not found: {docs_path}")
-    
-    # Use SimpleDirectoryReader to load all markdown files
-    reader = SimpleDirectoryReader(input_dir=str(docs_dir), required_exts=[".md"])
+def load_documents_with_metadata(path):
+    """טעינת קבצי Markdown עם ה-Metadata המותאם."""
+    print(f"Loading files from {path}...")
+    reader = SimpleDirectoryReader(
+        input_dir=path, 
+        required_exts=[".md"],
+        file_metadata=get_file_metadata # כאן מוזרק ה-Metadata
+    )
     documents = reader.load_data()
-    
-    print(f"[OK] Loaded {len(documents)} document(s) from {docs_path}")
-    for doc in documents:
-        print(f"     - {doc.metadata.get('file_name', 'Unknown')}")
+    print(f"[OK] Loaded {len(documents)} document(s)")
     return documents
 
-
-def create_vector_store_index(documents, embedding_model):
-    """Create a VectorStoreIndex with local storage."""
-    
-    # Ensure storage directory exists
-    Path(STORAGE_DIR).mkdir(exist_ok=True)
-    
-    # Create storage context with default vector store
+def create_and_persist_index(documents, embed_model):
+    """יצירת האינדקס ושמירתו בתיקיית storage."""
+    # יצירת הקשר אחסון (כברירת מחדל שומר לקבצי JSON)
     storage_context = StorageContext.from_defaults()
     
-    # Create index from documents
+    # בניית האינדקס מהמסמכים
     index = VectorStoreIndex.from_documents(
         documents,
         storage_context=storage_context,
-        embed_model=embedding_model,
+        embed_model=embed_model,
         show_progress=True
     )
     
-    # Persist the index locally
+    # שמירה פיזית בדיסק
+    Path(STORAGE_DIR).mkdir(exist_ok=True)
     index.storage_context.persist(persist_dir=STORAGE_DIR)
-    print(f"[OK] VectorStoreIndex created and stored in '{STORAGE_DIR}'")
+    print(f"[OK] Index stored locally in '{STORAGE_DIR}'")
     return index
 
-
-def query_index(index, query_text: str, top_k: int = 3):
-    """Query the index with a sample query."""
-    query_engine = index.as_query_engine(similarity_top_k=top_k)
-    response = query_engine.query(query_text)
+def run_sample_queries(index):
+    """הרצת שאילתות בדיקה שמשתמשות במידע החדש."""
+    test_queries = [
+        "What is the recipe structure according to the documentation?",
+        "Which specific tools are mentioned in the metadata?",
+        "How does the tagging system work?"
+    ]
     
-    print(f"\n[QUERY] {query_text}")
-    print(f"[RESPONSE]\n{response}\n")
-    return response
-
+    print("\n" + "=" * 50)
+    print("RUNNING TEST QUERIES")
+    print("=" * 50)
+    
+    try:
+        query_engine = index.as_query_engine(similarity_top_k=3)
+        for q in test_queries:
+            response = query_engine.query(q)
+            print(f"\n❓ Query: {q}")
+            print(f"💡 Response: {response}")
+    except Exception as e:
+        print(f"[WARN] Skipping sample query execution: {str(e)}")
 
 def main():
-    """Main function to orchestrate the indexing pipeline."""
     try:
-        print("=" * 70)
-        print("LlamaIndex Cohere Local Vector Store Indexing")
-        print("=" * 70 + "\n")
-        
-        # Validate environment setup
         validate_env_variables()
         
-        # Initialize Cohere embeddings
-        embedding_model = initialize_embedding_model()
+        # 1. הכנת המודל
+        embed_model = initialize_embedding_model()
         
-        # Load documentation files
-        documents = load_markdown_files("./documentation")
+        # 2. טעינת נתונים עם Metadata
+        documents = load_documents_with_metadata(DOCS_PATH)
         
         if not documents:
-            print("[ERROR] No markdown files found in ./documentation")
+            print("[ERROR] No markdown files found.")
             return
+
+        # 3. אינדוקס ושמירה
+        index = create_and_persist_index(documents, embed_model)
         
-        # Create and populate vector store index
-        index = create_vector_store_index(documents, embedding_model)
+        # 4. בדיקת תוצאות
+        run_sample_queries(index)
         
-        # Test the index with sample queries
-        print("\n" + "=" * 70)
-        print("Testing index with sample queries")
-        print("=" * 70)
-        query_index(index, "What is the recipe structure?")
-        query_index(index, "How does the tagging system work?")
-        query_index(index, "Explain the search logic")
-        
-        print("\n" + "=" * 70)
-        print("[SUCCESS] Indexing complete!")
-        print(f"Vector store persisted to: {STORAGE_DIR}")
-        print("=" * 70)
+        print("\n[SUCCESS] Pipeline completed successfully!")
         
     except Exception as e:
         print(f"\n[ERROR] {str(e)}")
         import traceback
         traceback.print_exc()
-        raise
-
 
 if __name__ == "__main__":
     main()

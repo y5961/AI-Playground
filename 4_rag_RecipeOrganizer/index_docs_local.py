@@ -4,9 +4,12 @@ Categorizes files by Agentic Tools (Cursor, Kiro, Claude) and uses local storage
 """
 
 import os
+import re
 from pathlib import Path
+from collections import Counter
 from dotenv import load_dotenv
 from llama_index.core import SimpleDirectoryReader, VectorStoreIndex, StorageContext
+from llama_index.core.node_parser import SentenceSplitter
 from llama_index.embeddings.cohere import CohereEmbedding
 
 # טעינת משתני סביבה
@@ -16,6 +19,7 @@ load_dotenv()
 COHERE_API_KEY = os.getenv("COHERE_API_KEY")
 STORAGE_DIR = "./storage"
 DOCS_PATH = "./recipeProject/documentation"
+MIN_REQUIRED_TOOLS = 2
 
 def validate_env_variables():
     """וידוא שמפתח ה-API קיים."""
@@ -29,7 +33,11 @@ def get_file_metadata(file_path):
     מזהה את הכלי (Tool) לפי שם הקובץ.
     """
     file_name = os.path.basename(file_path)
-    metadata = {"file_name": file_name}
+    normalized_path = str(file_path).replace("\\", "/")
+    metadata = {
+        "file_name": file_name,
+        "source_path": normalized_path,
+    }
     
     # לוגיקה לזיהוי הכלי האוטומטי
     fname_lower = file_name.lower()
@@ -43,6 +51,16 @@ def get_file_metadata(file_path):
         metadata["tool"] = "General Documentation"
         
     return metadata
+
+def extract_title_from_text(text: str, file_name: str) -> str:
+    """Extract title from first markdown heading, fallback to file stem."""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            title = re.sub(r"^#+\s*", "", stripped).strip()
+            if title:
+                return title
+    return Path(file_name).stem
 
 def initialize_embedding_model():
     """הגדרת מודל ה-Embeddings של Cohere."""
@@ -61,19 +79,43 @@ def load_documents_with_metadata(path):
         file_metadata=get_file_metadata # כאן מוזרק ה-Metadata
     )
     documents = reader.load_data()
+
+    for doc in documents:
+        file_name = doc.metadata.get("file_name", "untitled.md")
+        doc.metadata["title"] = extract_title_from_text(doc.text or "", file_name)
+
+    discovered_tools = {d.metadata.get("tool") for d in documents if d.metadata.get("tool")}
+    if len(discovered_tools) < MIN_REQUIRED_TOOLS:
+        raise ValueError(
+            f"At least {MIN_REQUIRED_TOOLS} tools are required, but only found: {sorted(discovered_tools)}"
+        )
+
     print(f"[OK] Loaded {len(documents)} document(s)")
     return documents
+
+
+def print_tools_summary(documents):
+    tool_counts = Counter(doc.metadata.get("tool", "Unknown") for doc in documents)
+    print("\n" + "=" * 50)
+    print("TOOLS DETECTION SUMMARY")
+    print("=" * 50)
+    for tool_name, count in sorted(tool_counts.items(), key=lambda item: item[0]):
+        print(f"- {tool_name}: {count} document(s)")
+    print(f"Total tools detected: {len(tool_counts)}")
 
 def create_and_persist_index(documents, embed_model):
     """יצירת האינדקס ושמירתו בתיקיית storage."""
     # יצירת הקשר אחסון (כברירת מחדל שומר לקבצי JSON)
     storage_context = StorageContext.from_defaults()
     
+    splitter = SentenceSplitter(chunk_size=700, chunk_overlap=80)
+
     # בניית האינדקס מהמסמכים
     index = VectorStoreIndex.from_documents(
         documents,
         storage_context=storage_context,
         embed_model=embed_model,
+        transformations=[splitter],
         show_progress=True
     )
     
@@ -117,6 +159,8 @@ def main():
         if not documents:
             print("[ERROR] No markdown files found.")
             return
+
+        print_tools_summary(documents)
 
         # 3. אינדוקס ושמירה
         index = create_and_persist_index(documents, embed_model)

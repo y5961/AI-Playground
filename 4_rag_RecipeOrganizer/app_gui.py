@@ -7,6 +7,11 @@ from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.postprocessor import SimilarityPostprocessor
 from llama_index.embeddings.cohere import CohereEmbedding
 from llama_index.llms.cohere import Cohere 
+from structured_knowledge import (
+    load_structured_knowledge,
+    should_use_structured_route,
+    query_structured_knowledge,
+)
 
 load_dotenv(override=True)
 
@@ -43,9 +48,15 @@ def init_rag():
     return index
 
 index = init_rag()
+structured_data = load_structured_knowledge()
 
 def ask_recipe_bot(question):
     try:
+        if should_use_structured_route(question):
+            structured_response = query_structured_knowledge(question, structured_data)
+            if structured_response:
+                return structured_response
+
         # בניית מנוע השאילתה בתוך ה-Try
         retriever = VectorIndexRetriever(index=index, similarity_top_k=1)
         synth = get_response_synthesizer(response_mode="compact", text_qa_template=QA_PROMPT)

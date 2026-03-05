@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0.0",
+  "item_types": {
+    "decisions": {
+      "description": "Project decisions and design choices",
+      "required_fields": [
+        "id",
+        "description",
+        "source",
+        "discovered_at"
+      ]
+    },
+    "rules": {
+      "description": "Guidelines, requirements, constraints, and rules",
+      "required_fields": [
+        "id",
+        "description",
+        "source",
+        "discovered_at"
+      ]
+    },
+    "warnings": {
+      "description": "Warnings, limitations, errors, and caveats",
+      "required_fields": [
+        "id",
+        "description",
+        "source",
+        "discovered_at"
+      ]
+    }
+  }
+}

@@ -5,9 +5,12 @@ API keys are loaded from .env file.
 """
 
 import os
+import re
 from pathlib import Path
+from collections import Counter
 from dotenv import load_dotenv
 from llama_index.core import SimpleDirectoryReader, VectorStoreIndex, StorageContext
+from llama_index.core.node_parser import SentenceSplitter
 from llama_index.vector_stores.pinecone import PineconeVectorStore
 from llama_index.embeddings.cohere import CohereEmbedding
 from pinecone import Pinecone
@@ -31,6 +34,36 @@ COHERE_API_KEY = os.getenv("COHERE_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT", "us-east-1")
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "recipe-organizer")
+DOCS_PATH = "./recipeProject/documentation"
+MIN_REQUIRED_TOOLS = 2
+
+def get_file_metadata(file_path: str) -> dict:
+    file_name = os.path.basename(file_path)
+    normalized_path = str(file_path).replace("\\", "/")
+    metadata = {
+        "file_name": file_name,
+        "source_path": normalized_path,
+    }
+
+    fname_lower = file_name.lower()
+    if "cursor" in fname_lower:
+        metadata["tool"] = "Cursor"
+    elif "kiro" in fname_lower:
+        metadata["tool"] = "Kiro"
+    elif "claude" in fname_lower:
+        metadata["tool"] = "Claude Code"
+    else:
+        metadata["tool"] = "General Documentation"
+    return metadata
+
+def extract_title_from_text(text: str, file_name: str) -> str:
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            title = re.sub(r"^#+\s*", "", stripped).strip()
+            if title:
+                return title
+    return Path(file_name).stem
 
 def validate_env_variables():
     """Validate that all required environment variables are set."""
@@ -79,11 +112,35 @@ def load_markdown_files(docs_path: str = "./documentation"):
         raise FileNotFoundError(f"Documentation directory not found: {docs_path}")
     
     # Use SimpleDirectoryReader to load all markdown files
-    reader = SimpleDirectoryReader(input_dir=str(docs_dir), required_exts=[".md"])
+    reader = SimpleDirectoryReader(
+        input_dir=str(docs_dir),
+        required_exts=[".md"],
+        file_metadata=get_file_metadata,
+    )
     documents = reader.load_data()
+
+    for doc in documents:
+        file_name = doc.metadata.get("file_name", "untitled.md")
+        doc.metadata["title"] = extract_title_from_text(doc.text or "", file_name)
+
+    discovered_tools = {d.metadata.get("tool") for d in documents if d.metadata.get("tool")}
+    if len(discovered_tools) < MIN_REQUIRED_TOOLS:
+        raise ValueError(
+            f"At least {MIN_REQUIRED_TOOLS} tools are required, but only found: {sorted(discovered_tools)}"
+        )
     
     print(f"✓ Loaded {len(documents)} document(s) from {docs_path}")
     return documents
+
+
+def print_tools_summary(documents):
+    tool_counts = Counter(doc.metadata.get("tool", "Unknown") for doc in documents)
+    print("\n" + "=" * 60)
+    print("TOOLS DETECTION SUMMARY")
+    print("=" * 60)
+    for tool_name, count in sorted(tool_counts.items(), key=lambda item: item[0]):
+        print(f"- {tool_name}: {count} document(s)")
+    print(f"Total tools detected: {len(tool_counts)}")
 
 
 def create_vector_store_index(documents, embedding_model, pinecone_index):
@@ -98,11 +155,14 @@ def create_vector_store_index(documents, embedding_model, pinecone_index):
     # Create storage context
     storage_context = StorageContext.from_defaults(vector_store=vector_store)
     
+    splitter = SentenceSplitter(chunk_size=700, chunk_overlap=80)
+
     # Create index from documents
     index = VectorStoreIndex.from_documents(
         documents,
         storage_context=storage_context,
         embed_model=embedding_model,
+        transformations=[splitter],
         show_progress=True
     )
     
@@ -133,7 +193,8 @@ def main():
         pinecone_index = initialize_pinecone()
         
         # Load documentation files
-        documents = load_markdown_files("./documentation")
+        documents = load_markdown_files(DOCS_PATH)
+        print_tools_summary(documents)
         
         # Create and populate vector store index
         index = create_vector_store_index(documents, embedding_model, pinecone_index)

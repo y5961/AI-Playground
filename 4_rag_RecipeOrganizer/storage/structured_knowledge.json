@@ -1,0 +1,16 @@
+{
+  "decisions": [],
+  "rules": [
+    {
+      "id": "rules-recipe_structure-6",
+      "description": "the required quantity (e.g. “2 cups flour”, “1 tbsp sugar”).",
+      "source": {
+        "file": "recipe_structure.md",
+        "row": 6
+      },
+      "discovered_at": "2026-03-05T16:35:18.088460+00:00"
+    }
+  ],
+  "warnings": [],
+  "generated_at": "2026-03-05T16:35:18.085595+00:00"
+}

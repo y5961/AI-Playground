@@ -38,6 +38,19 @@ pip install -r recipeProject\requirements.txt
 .\venv\Scripts\python.exe index_docs_local.py
 ```
 
+## חילוץ נתונים מובנה (Phase 3)
+
+כדי לבנות שכבת JSON מובנית עבור `Decisions` / `Rules` / `Warnings`:
+
+```powershell
+.\venv\Scripts\python.exe extract_structured_data.py
+```
+
+הפלט נשמר ב:
+
+- `storage/structured_schema.json`
+- `storage/structured_knowledge.json`
+
 ## הרצת app_workflow
 
 ```powershell
@@ -49,6 +62,11 @@ pip install -r recipeProject\requirements.txt
 ```powershell
 python app_workflow.py
 ```
+
+המערכת כוללת Router:
+
+- שאלות כלליות -> Semantic RAG
+- שאלות רשימה/כללים/אזהרות/"latest guideline" -> Structured Retrieval
 
 ## דוגמאות לשאלות שה-Agent יודע לענות
 

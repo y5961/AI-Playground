@@ -8,6 +8,11 @@ from llama_index.core.workflow import Workflow, step, StartEvent, StopEvent, Eve
 from llama_index.core import StorageContext, load_index_from_storage, Settings, PromptTemplate
 from llama_index.llms.cohere import Cohere
 from llama_index.embeddings.cohere import CohereEmbedding
+from structured_knowledge import (
+    load_structured_knowledge,
+    should_use_structured_route,
+    query_structured_knowledge,
+)
 
 load_dotenv(override=True)
 
@@ -29,14 +34,16 @@ QA_PROMPT = PromptTemplate(QA_PROMPT_TMPL)
 
 # --- 2. הגדרת האירועים ---
 class ValidationPassed(Event): query: str
+class RoutedQuery(Event): query: str; route: str
 class RetrievalDone(Event): query: str; context: str; nodes: list
 class QualityPassed(Event): query: str; context: str; nodes: list
 
 # --- 3. בניית ה-Workflow ---
 class RecipeWorkflow(Workflow):
-    def __init__(self, index, **kwargs):
+    def __init__(self, index, structured_data, **kwargs):
         super().__init__(**kwargs)
         self.index = index
+        self.structured_data = structured_data
 
     @step
     async def validate(self, ev: StartEvent) -> ValidationPassed | StopEvent:
@@ -46,7 +53,17 @@ class RecipeWorkflow(Workflow):
         return ValidationPassed(query=query)
 
     @step
-    async def retrieve(self, ev: ValidationPassed) -> RetrievalDone | StopEvent:
+    async def route(self, ev: ValidationPassed) -> RoutedQuery:
+        route = "structured" if should_use_structured_route(ev.query) else "semantic"
+        return RoutedQuery(query=ev.query, route=route)
+
+    @step
+    async def retrieve(self, ev: RoutedQuery) -> RetrievalDone | StopEvent:
+        if ev.route == "structured":
+            structured_response = query_structured_knowledge(ev.query, self.structured_data)
+            if structured_response:
+                return StopEvent(result=structured_response)
+
         # שליפת המידע הכי רלוונטי
         nodes = self.index.as_retriever(similarity_top_k=1).retrieve(ev.query)
         if not nodes:
@@ -79,7 +96,8 @@ class RecipeWorkflow(Workflow):
 # --- 4. אתחול המערכת ---
 def init_system():
     cohere_key = os.getenv("COHERE_API_KEY")
-    Settings.llm = Cohere(api_key=cohere_key, model="command-r-08-2024")
+    cohere_model = os.getenv("COHERE_CHAT_MODEL", "command-a-03-2025")
+    Settings.llm = Cohere(api_key=cohere_key, model=cohere_model)
     Settings.embed_model = CohereEmbedding(
         cohere_api_key=cohere_key, 
         model_name="embed-multilingual-v3.0",
@@ -87,7 +105,8 @@ def init_system():
     )
     storage_context = StorageContext.from_defaults(persist_dir="./storage")
     index = load_index_from_storage(storage_context)
-    return RecipeWorkflow(index=index, timeout=60)
+    structured_data = load_structured_knowledge()
+    return RecipeWorkflow(index=index, structured_data=structured_data, timeout=60)
 
 workflow_instance = init_system()
 

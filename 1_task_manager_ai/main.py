@@ -1,7 +1,9 @@
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from agent_service import agent
 from fastapi.middleware.cors import CORSMiddleware
+import os
 
 app = FastAPI() # קודם יוצרים את האפליקציה
 
@@ -24,4 +26,4 @@ async def chat_with_agent(user_message: UserMessage):
 
 @app.get("/")
 async def read_root():
-    return {"message": "Server is running!"}
+    return FileResponse("index.html", media_type="text/html")
